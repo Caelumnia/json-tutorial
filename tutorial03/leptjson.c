@@ -4,6 +4,7 @@
 #include <math.h>    /* HUGE_VAL */
 #include <stdlib.h>  /* NULL, malloc(), realloc(), free(), strtod() */
 #include <string.h>  /* memcpy() */
+#include <crtdbg.h>
 
 #ifndef LEPT_PARSE_STACK_INIT_SIZE
 #define LEPT_PARSE_STACK_INIT_SIZE 256
@@ -78,8 +79,8 @@ static int lept_parse_number(lept_context* c, lept_value* v) {
         for (p++; ISDIGIT(*p); p++);
     }
     errno = 0;
-    v->u.n = strtod(c->json, NULL);
-    if (errno == ERANGE && (v->u.n == HUGE_VAL || v->u.n == -HUGE_VAL))
+    v->n = strtod(c->json, NULL);
+    if (errno == ERANGE && (v->n == HUGE_VAL || v->n == -HUGE_VAL))
         return LEPT_PARSE_NUMBER_TOO_BIG;
     v->type = LEPT_NUMBER;
     c->json = p;
@@ -102,7 +103,26 @@ static int lept_parse_string(lept_context* c, lept_value* v) {
             case '\0':
                 c->top = head;
                 return LEPT_PARSE_MISS_QUOTATION_MARK;
+            case '\\':
+                switch(*p++) {
+                    case 'b':  PUTC(c, '\b'); break;
+                    case 'f':  PUTC(c, '\f'); break;
+                    case 'n':  PUTC(c, '\n'); break;
+                    case 'r':  PUTC(c, '\r'); break;
+                    case 't':  PUTC(c, '\t'); break;
+                    case '/':  PUTC(c, '/' ); break;
+                    case '\"': PUTC(c, '\"'); break;
+                    case '\\': PUTC(c, '\\'); break;
+                    default:
+                        c->top = head;
+                        return LEPT_PARSE_INVALID_STRING_ESCAPE;
+                }
+                break;
             default:
+                if ((unsigned char)ch < 0x20) { 
+                    c->top = head;
+                    return LEPT_PARSE_INVALID_STRING_CHAR;
+                }
                 PUTC(c, ch);
         }
     }
@@ -143,7 +163,7 @@ int lept_parse(lept_value* v, const char* json) {
 void lept_free(lept_value* v) {
     assert(v != NULL);
     if (v->type == LEPT_STRING)
-        free(v->u.s.s);
+        free(v->s);
     v->type = LEPT_NULL;
 }
 
@@ -154,38 +174,50 @@ lept_type lept_get_type(const lept_value* v) {
 
 int lept_get_boolean(const lept_value* v) {
     /* \TODO */
-    return 0;
+    assert(v != NULL);
+    switch(v->type) {
+        case LEPT_FALSE: return 0;
+        case LEPT_TRUE:  return 1;
+        default:         return LEPT_PARSE_INVALID_VALUE;
+    }
 }
 
 void lept_set_boolean(lept_value* v, int b) {
     /* \TODO */
+    assert(v != NULL);
+    lept_free(v);
+    v->type = b;
 }
 
 double lept_get_number(const lept_value* v) {
     assert(v != NULL && v->type == LEPT_NUMBER);
-    return v->u.n;
+    return v->n;
 }
 
 void lept_set_number(lept_value* v, double n) {
     /* \TODO */
+    assert(v != NULL);
+    lept_free(v);
+    v->type = LEPT_NUMBER;
+    v->n = n;
 }
 
 const char* lept_get_string(const lept_value* v) {
     assert(v != NULL && v->type == LEPT_STRING);
-    return v->u.s.s;
+    return v->s;
 }
 
 size_t lept_get_string_length(const lept_value* v) {
     assert(v != NULL && v->type == LEPT_STRING);
-    return v->u.s.len;
+    return v->len;
 }
 
 void lept_set_string(lept_value* v, const char* s, size_t len) {
     assert(v != NULL && (s != NULL || len == 0));
     lept_free(v);
-    v->u.s.s = (char*)malloc(len + 1);
-    memcpy(v->u.s.s, s, len);
-    v->u.s.s[len] = '\0';
-    v->u.s.len = len;
+    v->s = (char*)malloc(len + 1);
+    memcpy(v->s, s, len);
+    v->s[len] = '\0';
+    v->len = len;
     v->type = LEPT_STRING;
 }
